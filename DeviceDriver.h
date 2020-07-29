@@ -25,7 +25,12 @@
 
 static byte BROADCAST_ADDR[2] = {0xFF, 0xFF};
 
-//typedef unsigned short address;
+typedef enum{
+    UNKNOWN,
+    EBYTE_E22,
+    ADAFRUIT_32U4_FEATHER
+}DeviceType;
+
 
 class DeviceDriver{
 
@@ -59,6 +64,7 @@ public:
      */
     virtual int available() = 0;
 
+    virtual int getDeviceType() = 0;
 private:
     /**
      * Default receive timeout is 5000 ms (5 seconds) 

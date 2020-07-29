@@ -84,22 +84,32 @@ Parent node (including gateway) uses this value and multiply it with the number 
 */
 #define NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR 1.2
 
-struct ParentInfo{
+typedef enum
+{
+    NO_SLEEP,
+    SLEEP_TRANSCEIVER_INTERRUPT,
+    SLEEP_RTC_INTERRUPT
+} SleepMode;
+
+struct ParentInfo
+{
     unsigned long lastAliveTime;
     byte hopsToGateway;
-    
+
     byte parentAddr[2];
-    int Rssi;  
+    int Rssi;
     bool requireChecking;
 };
 
-struct ChildNode{
+struct ChildNode
+{
     byte nodeAddr[2];
 
-    ChildNode* next;
+    ChildNode *next;
 };
 
-class ForwardEngine{
+class ForwardEngine
+{
 
 public:
     /**
@@ -116,7 +126,7 @@ public:
      * Constructor. Requires driver and assigned addr
      * TODO: Add the function pointer for callback
      */
-    ForwardEngine(byte* addr, DeviceDriver* driver);
+    ForwardEngine(byte *addr, DeviceDriver *driver);
 
     /**
      * Try to join an existing network by finding a parent. Return true if successfully joined an 
@@ -138,27 +148,27 @@ public:
      */
     bool run();
 
-
     //Setter for the node address
-    void setAddr(byte* addr);
+    void setAddr(byte *addr);
 
     /**
      * Getter for the node address
      */
-    byte* getMyAddr();
+    byte *getMyAddr();
 
     /**
      * Getter for the parent address
      */
-    byte* getParentAddr();
+    byte *getParentAddr();
 
     void setGatewayReqTime(unsigned long gatewayReqTime);
 
     unsigned long getGatewayReqTime();
 
-    void onReceiveRequest(void(*callback)(byte**, byte*));
-    void onReceiveResponse(void(*callback)(byte*, byte, byte*));
+    void onReceiveRequest(void (*callback)(byte **, byte *));
+    void onReceiveResponse(void (*callback)(byte *, byte, byte *));
 
+    void setSleepMode(int sleepMode);
 
 private:
     /**
@@ -168,8 +178,8 @@ private:
 
     /**
      * DeviceDriver driver;
-     */ 
-    DeviceDriver* myDriver;
+     */
+    DeviceDriver *myDriver;
 
     /**
      * A record of current parent
@@ -178,8 +188,8 @@ private:
 
     /**
      * Hops to the gateway
-     */ 
-    byte hopsToGateway; 
+     */
+    byte hopsToGateway;
 
     /**
      * Current State
@@ -188,20 +198,20 @@ private:
 
     /**
      * Number of direct children currently connected to
-     */ 
+     */
     uint8_t numChildren;
 
     /**
      * A linked list of children nodes
      */
-    ChildNode* childrenList;
+    ChildNode *childrenList;
 
     unsigned long checkAliveInterval = 300000;
 
     /**
      * Time interval for gateway to request data from nodes
      */
-    unsigned long gatewayReqTime = DEFAULT_NEXT_GATEWAY_REQ_TIME; 
+    unsigned long gatewayReqTime = DEFAULT_NEXT_GATEWAY_REQ_TIME;
 
     /**
      * The last time that gateway sends out a request
@@ -210,7 +220,7 @@ private:
 
     /**
      * Sequence Number used to identify each Gateway Request
-     */ 
+     */
     uint8_t seqNum = 0;
 
     /**
@@ -226,16 +236,24 @@ private:
     /**
      * callback function pointer when Node receives Gateway Requests
      * arguments are to pass back msg and num of bytes
-     */ 
-    void (*onRecvRequest)(byte**, byte*);
+     */
+    void (*onRecvRequest)(byte **, byte *);
 
     /**
      * callback function pointer when Gateway receives responses from Nodes
      * argument is msg, num of bytes and sender address
-     */ 
-    void (*onRecvResponse)(byte*, byte, byte*);
+     */
+    void (*onRecvResponse)(byte *, byte, byte *);
 
+    volatile bool rtcInterrupt = false;
 
+    DS3232RTC rtc;
+
+    int rtcInterruptPin = 2;
+
+    volatile bool allowReceiving = false;
+
+    int sleepMode;
 };
 
 #endif

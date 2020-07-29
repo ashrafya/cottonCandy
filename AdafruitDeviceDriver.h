@@ -36,13 +36,6 @@
 #define DEFAULT_SPREADING_FACTOR 7
 #define DEFAULT_CHANNEL_BW 125E3
 #define DEFAULT_CODING_RATE_DENOMINATOR 5
-typedef enum
-{
-  TRANSMIT,
-  CONFIG,
-  WOR,
-  SLEEP
-} Mode;
 
 class AdafruitDeviceDriver : public DeviceDriver
 {
@@ -60,6 +53,8 @@ public:
   int available();
 
   int getLastMessageRssi();
+
+  int getDeviceType();
 
 private:
   byte addr[2];

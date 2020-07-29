@@ -189,3 +189,7 @@ void AdafruitDeviceDriver::setCodingRateDenominator(int cr)
 {
     this->codingRate = cr;
 }
+
+int AdafruitDeviceDriver::getDeviceType(){
+    return DeviceType::ADAFRUIT_32U4_FEATHER;
+}

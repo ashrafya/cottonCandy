@@ -20,6 +20,9 @@
 #ifndef HEADER_UTILITIES
 #define HEADER_UTILITIES
 
+#include <DS3232RTC.h>
+#include "Arduino.h"
+#include <avr/sleep.h>
 
 /**
  * Helper function for timing. On Arduino, it can be done using millis().

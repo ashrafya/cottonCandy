@@ -89,6 +89,7 @@ public:
      */
     void onReceiveResponse(void(*callback)(byte*, byte, byte*));
 
+    void setSleepMode(int sleepMode);
 
 private:
 

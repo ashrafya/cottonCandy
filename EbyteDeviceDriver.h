@@ -17,34 +17,36 @@
     along with CottonCandy.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 #ifndef HEADER_EBYTE_DEVICE_DRIVER
 #define HEADER_EBYTE_DEVICE_DRIVER
 
 #include "Arduino.h"
 #include "DeviceDriver.h"
 #include "SoftwareSerial.h"
+#include "Utilities.h"
+#include <avr/sleep.h>
 
 #define BAUD_RATE 9600
 #define EBYTE_ADDRESS_SIZE 2
 
-typedef enum 
+typedef enum
 {
-  TRANSMIT,
-  CONFIG,
-  WOR,
-  SLEEP
+    TRANSMIT,
+    CONFIG,
+    WOR,
+    SLEEP
 } Mode;
 
-class EbyteDeviceDriver : public DeviceDriver{
+class EbyteDeviceDriver : public DeviceDriver
+{
 public:
-    EbyteDeviceDriver(uint8_t rx, uint8_t tx, uint8_t m0, uint8_t m1, uint8_t aux_pin, byte* addr, uint8_t channel);
+    EbyteDeviceDriver(uint8_t rx, uint8_t tx, uint8_t m0, uint8_t m1, uint8_t aux_pin, byte *addr, uint8_t channel);
 
     ~EbyteDeviceDriver();
 
     bool init();
 
-    int send(byte* destAddr, byte* msg, long msgLen);
+    int send(byte *destAddr, byte *msg, long msgLen);
 
     byte recv();
 
@@ -52,8 +54,27 @@ public:
 
     int getLastMessageRssi();
 
+    void enterConfigMode();
+    void enterTransMode();
+    void enterWorMode();
+    void enterSleepMode();
+
+    uint8_t getCurrentMode();
+
+    uint8_t getInterruptPin();
+
+    static uint8_t getInterruptPinBehavior();
+
+    static void wakeISR();
+
+    bool powerDownMCU();
+
+    int getDeviceType();
+
+    byte adc_state;
+
 private:
-    SoftwareSerial* module;
+    SoftwareSerial *module;
     uint8_t rx;
     uint8_t tx;
     uint8_t m0;
@@ -65,7 +86,7 @@ private:
     uint8_t myChannel;
 
     /*-----------Module Registers Configuration-----------*/
-    void setAddress(byte* addr);
+    void setAddress(byte *addr);
     void setChannel(uint8_t channe);
     void setNetId(uint8_t netId);
     void setOthers(byte config);
@@ -73,14 +94,8 @@ private:
 
     /**
      * The function sets the air rate to 9.6kbps by default
-     */ 
+     */
     void setAirRate();
-
-    void enterConfigMode();
-    void enterTransMode();
-    void enterWorMode();
-    void enterSleepMode();
-    uint8_t getCurrentMode();
 
     /*-----------Helper Function-----------*/
     void receiveConfigReply(int replyLen);

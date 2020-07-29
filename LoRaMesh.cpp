@@ -73,3 +73,12 @@ bool LoRaMesh::run()
 {
   return myEngine->run();
 }
+
+void LoRaMesh::setSleepMode(int sleepMode)
+{
+  if(sleepMode < SleepMode::NO_SLEEP || sleepMode > SleepMode::SLEEP_RTC_INTERRUPT){
+    Serial.println(F("Error: Invalid sleep mode. Node will use default polling mode."));
+    return;
+  }
+  myEngine->setSleepMode(sleepMode);
+}

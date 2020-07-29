@@ -18,13 +18,15 @@
 */
 
 #include "Utilities.h"
-#include "Arduino.h"
 
 
-unsigned long getTimeMillis(){
+
+unsigned long getTimeMillis()
+{
     return millis();
 }
 
-void sleepForMillis(unsigned long time){
+void sleepForMillis(unsigned long time)
+{
     delay(time);
 }

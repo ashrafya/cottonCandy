@@ -18,7 +18,7 @@
 */
 
 #include "ForwardEngine.h"
-#include <string.h>
+#include <EbyteDeviceDriver.h>
 
 ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 {
@@ -40,6 +40,10 @@ ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 
     //Note: To obtain an arbitary seed, make sure Pin A0 is not connected to anything
     randomSeed(analogRead(A0));
+
+    //TODO: user need to set this through API
+    sleepMode = SleepMode::NO_SLEEP;
+
 }
 
 ForwardEngine::~ForwardEngine()
@@ -308,6 +312,52 @@ bool ForwardEngine::run()
     //The core network operations are carried out here
     while (state == JOINED)
     {
+        //Currently only support nodes with EByte devices
+        //TODO: Work for Adafruit devices
+        if (myDriver->getDeviceType() == DeviceType::EBYTE_E22 && !(myAddr[0] & GATEWAY_ADDRESS_MASK))
+        {
+            EbyteDeviceDriver *edriver = (EbyteDeviceDriver *)myDriver;
+
+            if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
+            {
+                /**
+                 * This mode turns off both the MCU and transceiver until the RTC alarm is
+                 * triggered. The RTC alarm wakes up the MCU and put the entire system into
+                 * the "SLEEP_TRANSCEIVER_INTERRUPT" mode until the receiving time period 
+                 * expires
+                 */
+
+                //TODO: need to do some RTC stuffs here
+
+                //Transition to "SLEEP_TRANSCEIVER_INTERRUPT" mode
+                sleepMode = SleepMode::SLEEP_TRANSCEIVER_INTERRUPT;
+            }
+
+            if (sleepMode == SleepMode::SLEEP_TRANSCEIVER_INTERRUPT)
+            {
+                /**
+                 * This mode turns off the MCU but always leaves the transceiver on in RX mode.
+                 * The MCU is woken up as soon as the transceiver receives a packet
+                 */
+
+                //If nothing to read from the transceiver, put MCU back to sleep
+                if (myDriver->available() < 1)
+                {
+                    Serial.println(F("Put MCU to sleep"));
+
+                    //Put the MCU to sleep and set the interrupt handler
+                    edriver->powerDownMCU();
+
+                    //Now the MCU has woken up, wait a while for the system to fully start up
+                    sleepForMillis(50);
+
+                    //Note: Apparently there seems to be a debouncing issue with Ebyte. After
+                    //sending a packet, MCU will wake up once about ~35ms after goes into sleep
+                    // even when there is no incoming packet.
+                    Serial.println(F("MCU wakes up"));
+                }
+            }
+        }
         msg = receiveMessage(myDriver, RECEIVE_TIMEOUT);
 
         if (msg != nullptr)
@@ -366,15 +416,18 @@ bool ForwardEngine::run()
             {
                 ChildNode *iter = childrenList;
 
-                while (iter != nullptr){
-                    if(iter->nodeAddr[0] == msg->srcAddr[0] && iter->nodeAddr[1] == msg->srcAddr[1]){
+                while (iter != nullptr)
+                {
+                    if (iter->nodeAddr[0] == msg->srcAddr[0] && iter->nodeAddr[1] == msg->srcAddr[1])
+                    {
                         break;
                     }
                     iter = iter->next;
                 }
                 // If the child node has already been in the children list (i.e. it reconnects to this
                 // parent node), do not add it to the list
-                if (iter != nullptr){
+                if (iter != nullptr)
+                {
                     break;
                 }
                 //Add the new child to the linked list (Insert at the beginning of the linked list)
@@ -632,4 +685,9 @@ bool ForwardEngine::run()
     myParent.hopsToGateway = 255;
 
     return 1;
+}
+
+void ForwardEngine::setSleepMode(int sleepMode)
+{
+    this->sleepMode = sleepMode;
 }
