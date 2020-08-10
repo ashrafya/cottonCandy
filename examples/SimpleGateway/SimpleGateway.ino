@@ -59,8 +59,8 @@ void onReciveResponse(byte *data, byte len, byte *srcAddr)
 
   // In this example, we will print out the reply message
   Serial.print(F("Gateway received a node reply from Node 0x"));
+  Serial.print(srcAddr[0], HEX);
   Serial.print(srcAddr[1], HEX);
-  Serial.print(srcAddr[2], HEX);
 
   Serial.print(F(". Data: "));
 
