@@ -87,7 +87,19 @@ Parent node (including gateway) uses this value and multiply it with the number 
 typedef enum
 {
     NO_SLEEP,
+
+    /**
+     * This mode turns off the MCU but always leaves the transceiver on in RX mode.
+     * The MCU is woken up as soon as the transceiver receives a packet
+     */
     SLEEP_TRANSCEIVER_INTERRUPT,
+
+    /**
+     * This mode turns off both the MCU and transceiver until the RTC alarm is
+     * triggered. The RTC alarm wakes up the MCU and put the entire system into
+     * the "SLEEP_TRANSCEIVER_INTERRUPT" mode until the receiving time period
+     * expires
+     */
     SLEEP_RTC_INTERRUPT
 } SleepMode;
 
@@ -107,6 +119,8 @@ struct ChildNode
 
     ChildNode *next;
 };
+
+void rtcISR();
 
 class ForwardEngine
 {
@@ -168,7 +182,7 @@ public:
     void onReceiveRequest(void (*callback)(byte **, byte *));
     void onReceiveResponse(void (*callback)(byte *, byte, byte *));
 
-    void setSleepMode(int sleepMode);
+    void setSleepMode(int sleepMode, int rtcInterruptPin);
 
 private:
     /**
@@ -245,15 +259,14 @@ private:
      */
     void (*onRecvResponse)(byte *, byte, byte *);
 
-    volatile bool rtcInterrupt = false;
-
-    DS3232RTC rtc;
-
-    int rtcInterruptPin = 2;
-
-    volatile bool allowReceiving = false;
-
     int sleepMode;
+
+    bool firstGatewayContact = false;
+
+    time_t nextGatewayReqTime;
+
+    time_t receivingPeriod;
+
 };
 
 #endif

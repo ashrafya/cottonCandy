@@ -1,4 +1,4 @@
-/*    
+/*
     Copyright 2020, Network Research Lab at the University of Toronto.
 
     This file is part of CottonCandy.
@@ -19,6 +19,9 @@
 
 #include "ForwardEngine.h"
 #include <EbyteDeviceDriver.h>
+
+volatile bool allowReceiving = true;
+int myRTCInterruptPin;
 
 ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 {
@@ -43,7 +46,6 @@ ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 
     //TODO: user need to set this through API
     sleepMode = SleepMode::NO_SLEEP;
-
 }
 
 ForwardEngine::~ForwardEngine()
@@ -95,12 +97,12 @@ void ForwardEngine::onReceiveResponse(void (*callback)(byte *, byte, byte *))
 }
 
 /**
- * The join function is responsible for sending out a beacon to discover neighboring 
+ * The join function is responsible for sending out a beacon to discover neighboring
  * nodes. After sending out the beacon, the node will receive messages for a given
  * period of time. Since the node might receive multiple replies of its beacon, as well
  * as the beacons from other nearby nodes, it waits for a period of time to collect info
  * from the nearby neighbors, and pick the best parent using the replies received.
- * 
+ *
  * Returns: True if the node has joined a parent
  */
 bool ForwardEngine::join()
@@ -131,14 +133,14 @@ bool ForwardEngine::join()
 
     unsigned long previousTime = getTimeMillis();
 
-    /** 
-     * In this loop, for a period of DISCOVERY_TIME, the node will wait for the following types 
+    /**
+     * In this loop, for a period of DISCOVERY_TIME, the node will wait for the following types
      * of incoming messages:
      *          1. Beacon ACK (sent by a potential parent)
      *          4. For any other types of message, the node will discard them
-     * 
+     *
      * It is possible that the node did not receive any above messages at all. In this case, the
-     * loop will timeout after a period of DISCOVERY_TIMEOUT. 
+     * loop will timeout after a period of DISCOVERY_TIMEOUT.
      */
     while ((unsigned long)(getTimeMillis() - previousTime) < DISCOVERY_TIMEOUT)
     {
@@ -215,8 +217,8 @@ bool ForwardEngine::join()
                 }
                 */
 
-            //Other cases involve: new node -> not connected to gateway, current best parent -> connected to the gateway
-            //In this case we will not update the best parent candidate
+                //Other cases involve: new node -> not connected to gateway, current best parent -> connected to the gateway
+                //In this case we will not update the best parent candidate
             break;
         }
         default:
@@ -318,43 +320,130 @@ bool ForwardEngine::run()
         {
             EbyteDeviceDriver *edriver = (EbyteDeviceDriver *)myDriver;
 
-            if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
-            {
-                /**
-                 * This mode turns off both the MCU and transceiver until the RTC alarm is
-                 * triggered. The RTC alarm wakes up the MCU and put the entire system into
-                 * the "SLEEP_TRANSCEIVER_INTERRUPT" mode until the receiving time period 
-                 * expires
-                 */
-
-                //TODO: need to do some RTC stuffs here
-
-                //Transition to "SLEEP_TRANSCEIVER_INTERRUPT" mode
-                sleepMode = SleepMode::SLEEP_TRANSCEIVER_INTERRUPT;
-            }
-
-            if (sleepMode == SleepMode::SLEEP_TRANSCEIVER_INTERRUPT)
+            if (sleepMode == SleepMode::SLEEP_TRANSCEIVER_INTERRUPT || sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
             {
                 /**
                  * This mode turns off the MCU but always leaves the transceiver on in RX mode.
                  * The MCU is woken up as soon as the transceiver receives a packet
                  */
 
-                //If nothing to read from the transceiver, put MCU back to sleep
+                 /**
+                   * Check the flag in case the RTC alarm already indicates that the receiving should be ended
+                   * This is important since if the node goes to sleep and there aren't any other incoming packets,
+                   * the node CAN GO TO SLEEP WITH transceiver-interrupt forever until the next incoming packet
+                   * (which could be a few hours later if unfortunate)
+                   */
                 if (myDriver->available() < 1)
                 {
-                    Serial.println(F("Put MCU to sleep"));
 
-                    //Put the MCU to sleep and set the interrupt handler
-                    edriver->powerDownMCU();
+                    //Make sure there is no RTC interrupt before going to sleep
+                    //Otherwise, we will never wake up
+                    noInterrupts();
+                    if (allowReceiving)
+                    {
+                        //If nothing to read from the transceiver, put MCU back to sleep
+                        Serial.println(F("Put MCU to sleep"));
 
-                    //Now the MCU has woken up, wait a while for the system to fully start up
-                    sleepForMillis(50);
+                        //Put the MCU to sleep and set the interrupt handler
+                        edriver->powerDownMCU();
 
-                    //Note: Apparently there seems to be a debouncing issue with Ebyte. After
-                    //sending a packet, MCU will wake up once about ~35ms after goes into sleep
-                    // even when there is no incoming packet.
-                    Serial.println(F("MCU wakes up"));
+                        /**
+                         * Now the MCU has woken up, wait a while for the system to fully start up
+                         * Note: this is based on experience, without delays, some bytes will be
+                         * lost when we read from software serial
+                         */
+                        sleepForMillis(50);
+
+                        //Note: Apparently there seems to be a debouncing issue with Ebyte. After
+                        //sending a packet, MCU will wake up once about ~35ms after goes into sleep
+                        // even when there is no incoming packet.
+                        Serial.println(F("MCU wakes up due to an incoming packet"));
+
+                        /**
+                         * There are two causes that might lead to MCU wakes up here:
+                         *   1. An incoming packet is detected
+                         *   2. RTC alarm has indicated the end of the receiving period
+                         */
+                    }
+                    else
+                    {
+                        //RTC interrupt has already occurred
+                        interrupts();
+
+                        // Put the transceiver to sleep
+                        edriver->enterSleepMode();
+
+                        //Here the receiving period has ended
+
+                        RTC.alarm(ALARM_1);
+
+                        /* DS3231 specification says the PPM is less than 2 which is equivalent to a drift of
+                        * ~0.17s per day (Acutal measured PPM is much less). Thus we can wake up the
+                        * microcontroller 5 seconds before the expected request. 5s is equivalent to the sum of
+                        * of maximum drift on DS3231 for almost 30 days.
+                        */
+
+                        //Set the time for next RTC alarm
+                        tmElements_t tm;
+                        breakTime(nextGatewayReqTime - 3, tm);
+
+                        RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
+
+                        Serial.print(F("RTC sleep starts until "));
+                        Serial.println(nextGatewayReqTime - 3);
+                        Serial.flush();
+
+                        // disable ADC
+                        ADCSRA = 0;
+
+                        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+                        sleep_enable();
+
+                        // Do not interrupt before we go to sleep, or the
+                        // ISR will detach interrupts and we won't wake.
+                        noInterrupts();
+                        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
+
+                        EIFR = bit(INTF0); // clear flag for interrupt 0
+
+                        // turn off brown-out enable in software
+                        // BODS must be set to one and BODSE must be set to zero within four clock cycles
+                        MCUCR = bit(BODS) | bit(BODSE);
+                        // The BODS bit is automatically cleared after three clock cycles
+                        MCUCR = bit(BODS);
+
+                        // We are guaranteed that the sleep_cpu call will be done
+                        // as the processor executes the next instruction after
+                        // interrupts are turned on.
+                        interrupts(); // one cycle
+                        sleep_cpu();  // one cycle
+
+                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
+                        RTC.alarm(ALARM_1);
+                        // Just to make sure allowReceiving is set to true
+                        if (!allowReceiving)
+                        {
+                            allowReceiving = true;
+                        }
+
+                        //Now the MCU has woken up, wait a while for the system to fully start up
+                        sleepForMillis(50);
+
+                        //TODO: Add code for the receiving Period
+                        Serial.print(F("Wake up from RTC sleep. Receive for "));
+                        Serial.print(receivingPeriod);
+                        Serial.println(F(" seconds"));
+
+                        // Put the Transceiver back on
+                        edriver->enterTransMode();
+
+                        time_t receivingPeriodEnd = RTC.get() + receivingPeriod;
+                        breakTime(receivingPeriodEnd, tm);
+
+                        //Set up the alarm for the end of the receiving period
+                        RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
+                        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
+                    }
                 }
             }
         }
@@ -491,6 +580,14 @@ bool ForwardEngine::run()
                 }
                 else
                 {
+                    time_t receivingPeriodStart;
+
+                    time_t receivingPeriodEnd;
+
+                    if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
+                    {
+                        receivingPeriodStart = RTC.get();
+                    }
                     // we know our parent is alive
                     myParent.requireChecking = false;
                     myParent.lastAliveTime = getTimeMillis();
@@ -544,6 +641,61 @@ bool ForwardEngine::run()
                         //Dixin Wu update: We simply broadcast the gatewayReq
                         GatewayRequest gwReq(myAddr, BROADCAST_ADDR, ((GatewayRequest *)msg)->seqNum, gatewayReqTime, childBackoffTime);
                         gwReq.send(myDriver, BROADCAST_ADDR);
+                    }
+
+                    if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
+                    {
+                        //Estimate the time when the next request will arrive
+                        nextGatewayReqTime = receivingPeriodStart + (time_t)(gatewayReqTime / 1000);
+
+                        /*
+                        * For less frequent data gathering every 20 minutes or more (e.g. every hours), only receive for 10 minutes
+                        * For more frequent data gathering every 20 minutes or less (e.g. every 5 minutes), receive for 50% of the request interval
+                        */
+                        if (gatewayReqTime <= 1200e3)
+                        {
+                            //Calculate the end of the receiving period
+                            receivingPeriodEnd = receivingPeriodStart + (time_t)(gatewayReqTime / 1000 / 2);
+                        }
+                        else
+                        {
+                            receivingPeriodEnd = receivingPeriodStart + 600;
+                        }
+
+                        receivingPeriod = receivingPeriodEnd - receivingPeriodStart;
+
+                        Serial.print(F("Receiving period: "));
+                        Serial.print(receivingPeriodStart);
+                        Serial.print(" to ");
+                        Serial.println(receivingPeriodEnd);
+                        /*
+                        * The node needs to set the RTC alarm when it first time contacts with the gateway
+                        */
+                        if (!firstGatewayContact)
+                        {
+                            Serial.println(F("First time gateway REQ"));
+                            // the first request has been received from the gateway
+                            firstGatewayContact = true;
+
+                            //Set receiving flag to be true
+                            allowReceiving = true;
+
+                            tmElements_t tm;
+
+                            breakTime(receivingPeriodEnd, tm);
+
+                            //Clear the alarm in case there is one
+                            RTC.alarm(ALARM_1);
+                            RTC.squareWave(SQWAVE_NONE);
+
+                            //Set up the alarm
+                            RTC.setAlarm(ALM1_MATCH_MINUTES, tm.Second, tm.Minute, 0, 0);
+
+                            noInterrupts();
+                            //Attach the interrupt
+                            attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
+
+                        }
                     }
                 }
                 break;
@@ -613,15 +765,15 @@ bool ForwardEngine::run()
                  * less than the child backoff time calculated, this can result into asynchronous
                  * requests and replies (e.g. Replies with seq number 5 arrives after request with
                  * seq number 10 has been issued)
-                 * 
+                 *
                  * Thus, if the child backoff time is greater than the gateway request time interval,
                  * the backoff time will be at least set to the gateway request time interval. Note
                  * that the asynchronous replies and requests can still occur as the tree has multiple
                  * hierarchies, but hopefully it prevents some extreme cases where the calculated
                  * backoff time is multiple times of the gatewayReqTime.
-                 * 
+                 *
                  * In practice, the problem hardly occurs as the gatewayReqTime is usually set to hours
-                 * and there are not so many nodes connected to the gateway. 
+                 * and there are not so many nodes connected to the gateway.
                  */
                 if (childBackoffTime > gatewayReqTime)
                 {
@@ -641,7 +793,8 @@ bool ForwardEngine::run()
             }
         }
         //For regular nodes, check whether a gatewayReq has arrived during the expected time interval
-        else if ((unsigned long)(currentTime - myParent.lastAliveTime) > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR * gatewayReqTime)
+        //Note: if RTC-based sleep is used, we use a different mechanism for fault detection
+        else if (sleepMode == SleepMode::NO_SLEEP && (unsigned long)(currentTime - myParent.lastAliveTime) > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR * gatewayReqTime)
         {
             //This means that the node has not received any gatewayReqs from its parent which it should has received if the connection is still up
 
@@ -687,7 +840,41 @@ bool ForwardEngine::run()
     return 1;
 }
 
-void ForwardEngine::setSleepMode(int sleepMode)
+void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 {
+
+    if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
+    {
+
+        tmElements_t tm;
+        //If the user intends to use RTC-based interrupt/sleep mode
+        //Make sure that a RTC is properly connected to the microcontroller
+        if (RTC.read(tm) != 0)
+        {
+            Serial.println(F("Error: Unable to set RTC-based interrupt. I2C error with the RTC."));
+            return;
+        }
+        else if (rtcInterruptPin < 2 || rtcInterruptPin > 3)
+        {
+            Serial.println(F("Error: RTC interrupt (SQW) has to be connected to digital pin 2 or 3"));
+            return;
+        }
+
+        myRTCInterruptPin = rtcInterruptPin;
+        //Initialize the RTC module with Alarm1
+        RTC.alarm(ALARM_1);
+        RTC.alarmInterrupt(ALARM_1, true);
+        RTC.alarmInterrupt(ALARM_2, false);
+        pinMode(myRTCInterruptPin, INPUT_PULLUP);
+    }
+
     this->sleepMode = sleepMode;
+    Serial.print(F("SleepMode set to: "));
+    Serial.println(sleepMode);
+}
+
+void rtcISR()
+{
+    allowReceiving = !allowReceiving;
+    detachInterrupt(digitalPinToInterrupt(myRTCInterruptPin));
 }

@@ -89,7 +89,7 @@ public:
      */
     void onReceiveResponse(void(*callback)(byte*, byte, byte*));
 
-    void setSleepMode(int sleepMode);
+    void setSleepMode(int sleepMode, int rtcInterruptPin = 2);
 
 private:
 
