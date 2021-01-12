@@ -304,13 +304,14 @@ bool ForwardEngine::run()
     Serial.println(F("Joining successful"));
 
     //bool checkingParent = false;
-    unsigned long checkingStartTime = 0;
+    //unsigned long checkingStartTime = 0;
 
     // the request time starts when Gateway is up
     lastReqTime = getTimeMillis();
 
     GenericMessage *msg = nullptr;
 
+    bool gatewayReqRecv = false;
     //The core network operations are carried out here
     while (state == JOINED)
     {
@@ -354,10 +355,7 @@ bool ForwardEngine::run()
                          */
                         sleepForMillis(50);
 
-                        //Note: Apparently there seems to be a debouncing issue with Ebyte. After
-                        //sending a packet, MCU will wake up once about ~35ms after goes into sleep
-                        // even when there is no incoming packet.
-                        Serial.println(F("MCU wakes up due to an incoming packet"));
+                        Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
 
                         /**
                          * There are two causes that might lead to MCU wakes up here:
@@ -370,9 +368,6 @@ bool ForwardEngine::run()
                         //RTC interrupt has already occurred
                         interrupts();
 
-                        // Put the transceiver to sleep
-                        edriver->enterSleepMode();
-
                         //Here the receiving period has ended
 
                         RTC.alarm(ALARM_1);
@@ -383,6 +378,38 @@ bool ForwardEngine::run()
                         * of maximum drift on DS3231 for almost 30 days.
                         */
 
+                        // In this case, a gatewayReq has not been received during the receiving period.
+                        // Thus we use the time from the last gatewayReq to schedule the next wake-up
+                        if (!gatewayReqRecv){
+                            // Increment the counter
+                            consecutiveMissingReqs ++ ;
+                            nextGatewayReqTime = nextGatewayReqTime + (time_t)gatewayReqTime / 1000;
+
+                            Serial.println(F("No gateway request received during this time period"));
+                        }else{
+                            // Reset the counter
+                            consecutiveMissingReqs = 0;
+                        }
+
+                        // Fault detection
+                        if ((float)consecutiveMissingReqs > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR ){
+                            state = INIT;
+                            Serial.print(F("No message has been received for "));
+                            Serial.print(consecutiveMissingReqs);
+                            Serial.println(F(" consecutive receiving periods"));
+                            
+                            // Reset the fault-detection variables
+                            firstGatewayContact = false;
+                            consecutiveMissingReqs = 0;
+                            allowReceiving = true;
+
+                            //We have disconnected from the parent
+                            myParent.parentAddr[0] = myAddr[0];
+                            myParent.parentAddr[1] = myAddr[1];
+                            myParent.hopsToGateway = 255;
+                            return 1;
+                        }
+
                         //Set the time for next RTC alarm
                         tmElements_t tm;
                         breakTime(nextGatewayReqTime - 3, tm);
@@ -391,6 +418,9 @@ bool ForwardEngine::run()
 
                         Serial.print(F("RTC sleep starts until "));
                         Serial.println(nextGatewayReqTime - 3);
+                        
+                        // Put the transceiver to sleep
+                        edriver->enterSleepMode();
                         Serial.flush();
 
                         // disable ADC
@@ -402,6 +432,7 @@ bool ForwardEngine::run()
                         // Do not interrupt before we go to sleep, or the
                         // ISR will detach interrupts and we won't wake.
                         noInterrupts();
+
                         attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
 
                         EIFR = bit(INTF0); // clear flag for interrupt 0
@@ -429,11 +460,6 @@ bool ForwardEngine::run()
                         //Now the MCU has woken up, wait a while for the system to fully start up
                         sleepForMillis(50);
 
-                        //TODO: Add code for the receiving Period
-                        Serial.print(F("Wake up from RTC sleep. Receive for "));
-                        Serial.print(receivingPeriod);
-                        Serial.println(F(" seconds"));
-
                         // Put the Transceiver back on
                         edriver->enterTransMode();
 
@@ -443,12 +469,28 @@ bool ForwardEngine::run()
                         //Set up the alarm for the end of the receiving period
                         RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
                         attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
+
+                        Serial.print(F("Wake up from RTC sleep. Receive for "));
+                        Serial.print(receivingPeriod);
+                        Serial.println(F(" seconds"));
+
+                        //Clear gatewayReq flag
+                        gatewayReqRecv = false;
+
+                        /**
+                         * We did not make MCU sleep here. Since we are waking up 3 seconds before the
+                         * next request, no message will arrive now (i.e. all the following packet parsing
+                         * code will be skipped). It will then go to the start of the loop and enters MCU
+                         * sleep automatically. 
+                         * 
+                         * In rare cases where the request comes in right now (may due to a problem in time
+                         * synchronization), the MCU receives the packet first before goes to sleep.
+                         */ 
                     }
                 }
             }
         }
         msg = receiveMessage(myDriver, RECEIVE_TIMEOUT);
-
         if (msg != nullptr)
         {
 
@@ -696,6 +738,8 @@ bool ForwardEngine::run()
                             attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
 
                         }
+                        // Indicate that we have received a gatewayReq during the receiving period
+                        gatewayReqRecv = true;
                     }
                 }
                 break;
@@ -740,6 +784,9 @@ bool ForwardEngine::run()
 
             delete msg;
         }
+
+        //Serial.print(F("Free Memory: "));
+        //Serial.println(freeMemory());
 
         unsigned long currentTime = getTimeMillis();
         //The gateway does not need to check its parent

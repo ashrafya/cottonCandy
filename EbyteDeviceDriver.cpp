@@ -390,7 +390,10 @@ bool EbyteDeviceDriver::powerDownMCU()
 
     attachInterrupt(digitalPinToInterrupt(aux_pin), wakeISR, FALLING);
 
-    EIFR = bit(INTF0); // clear flag for interrupt 0
+    /* 
+    * TODO: This is currently hard-coded (assuming Ebyte AUX is connected to pin D3) 
+    */
+    EIFR = bit(INTF1); // clear flag for interrupt 1
 
     // turn off brown-out enable in software
     // BODS must be set to one and BODSE must be set to zero within four clock cycles

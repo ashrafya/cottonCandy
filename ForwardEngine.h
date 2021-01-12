@@ -267,6 +267,9 @@ private:
 
     time_t receivingPeriod;
 
+    // A counter for missing consecutive gateway requests 
+    int consecutiveMissingReqs = 0;
+
 };
 
 #endif

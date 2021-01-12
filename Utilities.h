@@ -35,4 +35,6 @@ unsigned long getTimeMillis();
  */
 void sleepForMillis(unsigned long time);
 
+int freeMemory();
+
 #endif
