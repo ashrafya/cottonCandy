@@ -23,6 +23,7 @@
 #include "DeviceDriver.h"
 #include "MessageProcessor.h"
 #include "Utilities.h"
+#include <DS3232RTC.h>
 
 /*-------------States of a Node------------*/
 #define INIT 0

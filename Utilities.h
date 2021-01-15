@@ -20,7 +20,6 @@
 #ifndef HEADER_UTILITIES
 #define HEADER_UTILITIES
 
-#include <DS3232RTC.h>
 #include "Arduino.h"
 #include <avr/sleep.h>
 

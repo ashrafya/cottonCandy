@@ -433,8 +433,6 @@ bool ForwardEngine::run()
                         // ISR will detach interrupts and we won't wake.
                         noInterrupts();
 
-                        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
-
                         EIFR = bit(INTF0); // clear flag for interrupt 0
 
                         // turn off brown-out enable in software
@@ -449,16 +447,12 @@ bool ForwardEngine::run()
                         interrupts(); // one cycle
                         sleep_cpu();  // one cycle
 
-                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
-                        RTC.alarm(ALARM_1);
-                        // Just to make sure allowReceiving is set to true
-                        if (!allowReceiving)
-                        {
-                            allowReceiving = true;
-                        }
 
                         //Now the MCU has woken up, wait a while for the system to fully start up
-                        sleepForMillis(50);
+                        sleepForMillis(1000);
+                        
+                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
+                        RTC.alarm(ALARM_1);
 
                         // Put the Transceiver back on
                         edriver->enterTransMode();
@@ -468,11 +462,17 @@ bool ForwardEngine::run()
 
                         //Set up the alarm for the end of the receiving period
                         RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
-                        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
+
+                        // Just to make sure allowReceiving is set to true
+                        if (!allowReceiving)
+                        {
+                            allowReceiving = true;
+                        }
 
                         Serial.print(F("Wake up from RTC sleep. Receive for "));
                         Serial.print(receivingPeriod);
-                        Serial.println(F(" seconds"));
+                        Serial.print(F(" seconds until "));
+                        Serial.println(receivingPeriodEnd);
 
                         //Clear gatewayReq flag
                         gatewayReqRecv = false;
@@ -733,10 +733,6 @@ bool ForwardEngine::run()
                             //Set up the alarm
                             RTC.setAlarm(ALM1_MATCH_MINUTES, tm.Second, tm.Minute, 0, 0);
 
-                            noInterrupts();
-                            //Attach the interrupt
-                            attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);
-
                         }
                         // Indicate that we have received a gatewayReq during the receiving period
                         gatewayReqRecv = true;
@@ -892,7 +888,6 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 
     if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
     {
-
         tmElements_t tm;
         //If the user intends to use RTC-based interrupt/sleep mode
         //Make sure that a RTC is properly connected to the microcontroller
@@ -913,6 +908,9 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
         RTC.alarmInterrupt(ALARM_1, true);
         RTC.alarmInterrupt(ALARM_2, false);
         pinMode(myRTCInterruptPin, INPUT_PULLUP);
+
+        //Attach the interrupt
+        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);    
     }
 
     this->sleepMode = sleepMode;
@@ -923,5 +921,4 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 void rtcISR()
 {
     allowReceiving = !allowReceiving;
-    detachInterrupt(digitalPinToInterrupt(myRTCInterruptPin));
 }
