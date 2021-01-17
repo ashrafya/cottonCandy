@@ -342,7 +342,9 @@ bool ForwardEngine::run()
                     noInterrupts();
                     if (allowReceiving)
                     {
-                        //If nothing to read from the transceiver, put MCU back to sleep
+                        Serial.println(F("RTC Off"));
+                        digitalWrite(7, LOW);
+
                         Serial.println(F("Put MCU to sleep"));
 
                         //Put the MCU to sleep and set the interrupt handler
@@ -383,31 +385,17 @@ bool ForwardEngine::run()
                         if (!gatewayReqRecv){
                             // Increment the counter
                             consecutiveMissingReqs ++ ;
-                            nextGatewayReqTime = nextGatewayReqTime + (time_t)gatewayReqTime / 1000;
+                            Serial.println(nextGatewayReqTime);
+                            Serial.println(gatewayReqTime);
+
+
+                            nextGatewayReqTime = nextGatewayReqTime + (time_t)(gatewayReqTime / 1e3);
 
                             Serial.println(F("No gateway request received during this time period"));
+                            
                         }else{
                             // Reset the counter
                             consecutiveMissingReqs = 0;
-                        }
-
-                        // Fault detection
-                        if ((float)consecutiveMissingReqs > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR ){
-                            state = INIT;
-                            Serial.print(F("No message has been received for "));
-                            Serial.print(consecutiveMissingReqs);
-                            Serial.println(F(" consecutive receiving periods"));
-                            
-                            // Reset the fault-detection variables
-                            firstGatewayContact = false;
-                            consecutiveMissingReqs = 0;
-                            allowReceiving = true;
-
-                            //We have disconnected from the parent
-                            myParent.parentAddr[0] = myAddr[0];
-                            myParent.parentAddr[1] = myAddr[1];
-                            myParent.hopsToGateway = 255;
-                            return 1;
                         }
 
                         //Set the time for next RTC alarm
@@ -421,6 +409,8 @@ bool ForwardEngine::run()
                         
                         // Put the transceiver to sleep
                         edriver->enterSleepMode();
+
+                        digitalWrite(7, LOW);
                         Serial.flush();
 
                         // disable ADC
@@ -449,16 +439,55 @@ bool ForwardEngine::run()
 
 
                         //Now the MCU has woken up, wait a while for the system to fully start up
-                        sleepForMillis(1000);
-                        
-                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
-                        RTC.alarm(ALARM_1);
+                        sleepForMillis(50);
 
                         // Put the Transceiver back on
                         edriver->enterTransMode();
 
+                        // Fault detection
+                        if (firstGatewayContact && (float)consecutiveMissingReqs > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR ){
+                            state = INIT;
+                            Serial.print(F("No message has been received for "));
+                            Serial.print(consecutiveMissingReqs);
+                            Serial.println(F(" consecutive receiving periods"));
+                            
+                            // Reset the fault-detection variables
+                            firstGatewayContact = false;
+                            consecutiveMissingReqs = 0;
+                            allowReceiving = true;
+
+                            //We have disconnected from the parent
+                            myParent.parentAddr[0] = myAddr[0];
+                            myParent.parentAddr[1] = myAddr[1];
+                            myParent.hopsToGateway = 255;
+                            return 1;
+                        }
+
                         time_t receivingPeriodEnd = RTC.get() + receivingPeriod;
                         breakTime(receivingPeriodEnd, tm);
+                        
+                        tmElements_t new_tm;
+                        RTC.read(new_tm);
+                        Serial.print(F("Current Day: "));
+                        Serial.print(new_tm.Day);
+                        Serial.print(F(" Current Hour: "));
+                        Serial.print(new_tm.Hour);
+                        Serial.print(F(" Current Minutes: "));
+                        Serial.print(new_tm.Minute);
+                        Serial.print(F(" Current Seconds: "));
+                        Serial.println(new_tm.Second);
+
+                        Serial.print(F("Matching Day: "));
+                        Serial.print(tm.Day);
+                        Serial.print(F(" Matching Hour: "));
+                        Serial.print(tm.Hour);
+                        Serial.print(F(" Matching Minutes: "));
+                        Serial.print(tm.Minute);
+                        Serial.print(F(" Matching Seconds: "));
+                        Serial.println(tm.Second);
+
+                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
+                        RTC.alarm(ALARM_1);
 
                         //Set up the alarm for the end of the receiving period
                         RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
@@ -688,7 +717,7 @@ bool ForwardEngine::run()
                     if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
                     {
                         //Estimate the time when the next request will arrive
-                        nextGatewayReqTime = receivingPeriodStart + (time_t)(gatewayReqTime / 1000);
+                        nextGatewayReqTime = receivingPeriodStart + (time_t)(gatewayReqTime / 1e3);
 
                         /*
                         * For less frequent data gathering every 20 minutes or more (e.g. every hours), only receive for 10 minutes
@@ -697,19 +726,42 @@ bool ForwardEngine::run()
                         if (gatewayReqTime <= 1200e3)
                         {
                             //Calculate the end of the receiving period
-                            receivingPeriodEnd = receivingPeriodStart + (time_t)(gatewayReqTime / 1000 / 2);
+                            receivingPeriod = (time_t)(gatewayReqTime / 1e3 / 2);
                         }
                         else
                         {
-                            receivingPeriodEnd = receivingPeriodStart + 600;
+                            receivingPeriod = 600;
                         }
 
-                        receivingPeriod = receivingPeriodEnd - receivingPeriodStart;
+                        receivingPeriodEnd = receivingPeriodStart + receivingPeriod;
 
                         Serial.print(F("Receiving period: "));
                         Serial.print(receivingPeriodStart);
                         Serial.print(" to ");
                         Serial.println(receivingPeriodEnd);
+
+                        /*
+                         * If there is already an alarm set up (usually for fault detection), the following code
+                         * will replace it with a new alarm, which is t seconds (e.g. 60s) after the gateway received
+                         * request. This way we can guarantee that the node will be receiving for t seconds after the
+                         * gateway request regardless of when it actually woke up; It avoids the rare case where the
+                         * gateway request arrives very late in the expected receiving period due to delays and the 
+                         * node can "prematurely" go to sleep.
+                         */ 
+
+                        tmElements_t tm;
+
+                        breakTime(receivingPeriodEnd, tm);
+
+                        //Clear the alarm in case there is one
+                        RTC.alarm(ALARM_1);
+
+                        //Set up the alarm
+                        RTC.setAlarm(ALM1_MATCH_MINUTES, tm.Second, tm.Minute, 0, 0);
+
+                        // Indicate that we have received a gatewayReq during the receiving period
+                        gatewayReqRecv = true;
+
                         /*
                         * The node needs to set the RTC alarm when it first time contacts with the gateway
                         */
@@ -722,20 +774,12 @@ bool ForwardEngine::run()
                             //Set receiving flag to be true
                             allowReceiving = true;
 
-                            tmElements_t tm;
-
-                            breakTime(receivingPeriodEnd, tm);
-
-                            //Clear the alarm in case there is one
-                            RTC.alarm(ALARM_1);
-                            RTC.squareWave(SQWAVE_NONE);
-
-                            //Set up the alarm
-                            RTC.setAlarm(ALM1_MATCH_MINUTES, tm.Second, tm.Minute, 0, 0);
-
+                            // Attach the interrupt
+                            // The reason we do not attach the interrupt at the beginning is that 
+                            // there could be previous alarm in the RTC.
+                            attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);    
                         }
-                        // Indicate that we have received a gatewayReq during the receiving period
-                        gatewayReqRecv = true;
+
                     }
                 }
                 break;
@@ -888,6 +932,11 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 
     if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
     {
+
+        pinMode(7, OUTPUT);
+        digitalWrite(7, HIGH);
+        sleepForMillis(500);
+
         tmElements_t tm;
         //If the user intends to use RTC-based interrupt/sleep mode
         //Make sure that a RTC is properly connected to the microcontroller
@@ -905,12 +954,10 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
         myRTCInterruptPin = rtcInterruptPin;
         //Initialize the RTC module with Alarm1
         RTC.alarm(ALARM_1);
+        RTC.squareWave(SQWAVE_NONE);
         RTC.alarmInterrupt(ALARM_1, true);
         RTC.alarmInterrupt(ALARM_2, false);
         pinMode(myRTCInterruptPin, INPUT_PULLUP);
-
-        //Attach the interrupt
-        attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);    
     }
 
     this->sleepMode = sleepMode;
@@ -921,4 +968,5 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 void rtcISR()
 {
     allowReceiving = !allowReceiving;
+    digitalWrite(7, HIGH);
 }
