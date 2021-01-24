@@ -60,7 +60,7 @@ bool EbyteDeviceDriver::init()
     while (digitalRead(this->aux_pin) != HIGH)
     {
         Serial.println(F("Waiting for LoRa Module to initialize"));
-        delay(10);
+        sleepForMillis(10);
     }
 
     module->begin(BAUD_RATE);
@@ -115,7 +115,7 @@ int EbyteDeviceDriver::send(byte *destAddr, byte *msg, long msgLen)
     //Wait for the message written to the Ebyte chip
     //This delay is estimated by using the maximum message length (~70 Bytes) divided by the
     //baud rate (9600 8N1 ~= 1040 bytes per second) and get ~60ms
-    delay(60);
+    sleepForMillis(60);
 
     //Wait till Ebyte has transmitted the message
     while (digitalRead(this->aux_pin) != HIGH)
@@ -174,7 +174,7 @@ void EbyteDeviceDriver::enterConfigMode()
     digitalWrite(this->m0, LOW);
     digitalWrite(this->m1, HIGH);
     //Need to wait for the configuration to be in effect
-    delay(1000);
+    sleepForMillis(1000);
     //Make Sure the AUX is now in HIGH state
     while (digitalRead(this->aux_pin) != HIGH)
     {
@@ -188,7 +188,7 @@ void EbyteDeviceDriver::enterTransMode()
     digitalWrite(this->m0, LOW);
     digitalWrite(this->m1, LOW);
     //Need to wait for the configuration to be in effect
-    delay(1000);
+    sleepForMillis(1000);
 
     //Make Sure the AUX is now in HIGH state
     while (digitalRead(this->aux_pin) != HIGH)
@@ -204,7 +204,7 @@ void EbyteDeviceDriver::enterWorMode()
     digitalWrite(this->m1, LOW);
 
     //Need to wait for the configuration to be in effect
-    delay(1000);
+    sleepForMillis(1000);
     //Make Sure the AUX is now in HIGH state
     while (digitalRead(this->aux_pin) != HIGH)
     {
@@ -219,7 +219,7 @@ void EbyteDeviceDriver::enterSleepMode()
     digitalWrite(this->m1, HIGH);
 
     //Need to wait for the configuration to be in effect
-    delay(1000);
+    sleepForMillis(1000);
     //Make Sure the AUX is now in HIGH state
     while (digitalRead(this->aux_pin) != HIGH)
     {
@@ -370,14 +370,14 @@ void EbyteDeviceDriver::wakeISR()
     sleep_disable();
 }
 
-bool EbyteDeviceDriver::powerDownMCU()
+void EbyteDeviceDriver::powerDownMCU()
 {
     //Make sure the debugging messages are printed correctly before goes to sleep
     Serial.flush();
 
     //pinMode(aux_pin, INPUT_PULLUP);
 
-    adc_state = ADCSRA;
+    byte adc_state = ADCSRA;
     // disable ADC
     ADCSRA = 0;
 
@@ -388,18 +388,21 @@ bool EbyteDeviceDriver::powerDownMCU()
     // ISR will detach interrupts and we won't wake.
     noInterrupts();
 
-    attachInterrupt(digitalPinToInterrupt(aux_pin), wakeISR, FALLING);
+    attachInterrupt(translateInterruptPin(aux_pin), wakeISR, FALLING);
 
     /* 
     * TODO: This is currently hard-coded (assuming Ebyte AUX is connected to pin D3) 
     */
-    EIFR = bit(INTF1); // clear flag for interrupt 1
+    EIFR = bit(translateInterruptPin(aux_pin)); // clear flag for interrupt 1
 
+    // Software brown-out only works in ATmega328p
+    #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168P__)
     // turn off brown-out enable in software
     // BODS must be set to one and BODSE must be set to zero within four clock cycles
     MCUCR = bit(BODS) | bit(BODSE);
     // The BODS bit is automatically cleared after three clock cycles
     MCUCR = bit(BODS);
+    #endif
 
     // We are guaranteed that the sleep_cpu call will be done
     // as the processor executes the next instruction after
@@ -409,7 +412,7 @@ bool EbyteDeviceDriver::powerDownMCU()
     //The MCU is turned off after this point
 
     //When MCU wakes up, first thing is to disable the interrupt
-    detachInterrupt(digitalPinToInterrupt(aux_pin));
+    detachInterrupt(translateInterruptPin(aux_pin));
 
     //Restore the ADC
     ADCSRA = adc_state;

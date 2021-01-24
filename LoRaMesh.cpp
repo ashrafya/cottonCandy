@@ -74,11 +74,11 @@ bool LoRaMesh::run()
   return myEngine->run();
 }
 
-void LoRaMesh::setSleepMode(int sleepMode, int rtcInterruptPin)
+void LoRaMesh::setSleepMode(uint8_t sleepMode, uint8_t rtcInterruptPin, uint8_t rtcVccPin)
 {
   if(sleepMode < SleepMode::NO_SLEEP || sleepMode > SleepMode::SLEEP_RTC_INTERRUPT){
-    Serial.println(F("Error: Invalid sleep mode. Node will use default polling mode."));
+    Serial.println(F("Error: Invalid sleep mode. Node will use the default polling mode."));
     return;
   }
-  myEngine->setSleepMode(sleepMode, rtcInterruptPin);
+  myEngine->setSleepMode(sleepMode, rtcInterruptPin, rtcVccPin);
 }

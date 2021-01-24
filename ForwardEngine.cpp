@@ -18,10 +18,11 @@
 */
 
 #include "ForwardEngine.h"
-#include <EbyteDeviceDriver.h>
+//#include "LowPower.h"
 
 volatile bool allowReceiving = true;
-int myRTCInterruptPin;
+uint8_t myRTCInterruptPin;
+uint8_t myRTCVccPin;
 
 ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 {
@@ -317,9 +318,9 @@ bool ForwardEngine::run()
     {
         //Currently only support nodes with EByte devices
         //TODO: Work for Adafruit devices
-        if (myDriver->getDeviceType() == DeviceType::EBYTE_E22 && !(myAddr[0] & GATEWAY_ADDRESS_MASK))
+        if (!(myAddr[0] & GATEWAY_ADDRESS_MASK))
         {
-            EbyteDeviceDriver *edriver = (EbyteDeviceDriver *)myDriver;
+            //EbyteDeviceDriver *edriver = (EbyteDeviceDriver *)myDriver;
 
             if (sleepMode == SleepMode::SLEEP_TRANSCEIVER_INTERRUPT || sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
             {
@@ -342,23 +343,27 @@ bool ForwardEngine::run()
                     noInterrupts();
                     if (allowReceiving)
                     {
-                        Serial.println(F("RTC Off"));
-                        digitalWrite(7, LOW);
+                        //Currently we do not support Adafruit 32u4 LoRa Feather for
+                        //transceiver-based interrupt since its DIO0 pin is inaccessible 
+                        //(i.e. The DIO0 pin is connected internally to a 32u4 pin that
+                        //does not support hardware-interrupt)
+                        if (myDriver->getDeviceType() == DeviceType::EBYTE_E22){
+                            Serial.println(F("Put MCU to sleep"));
 
-                        Serial.println(F("Put MCU to sleep"));
+                            //Put the MCU to sleep and set the interrupt handler
+                            myDriver->powerDownMCU();
 
-                        //Put the MCU to sleep and set the interrupt handler
-                        edriver->powerDownMCU();
+                            /**
+                             * Now the MCU has woken up, wait a while for the system to fully start up
+                             * Note: this is based on experience, without delays, some bytes will be
+                             * lost when we read from software serial
+                             */
+                            sleepForMillis(50);
 
-                        /**
-                         * Now the MCU has woken up, wait a while for the system to fully start up
-                         * Note: this is based on experience, without delays, some bytes will be
-                         * lost when we read from software serial
-                         */
-                        sleepForMillis(50);
-
-                        Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
-
+                            Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
+                        }else{
+                            interrupts();
+                        }
                         /**
                          * There are two causes that might lead to MCU wakes up here:
                          *   1. An incoming packet is detected
@@ -406,14 +411,25 @@ bool ForwardEngine::run()
 
                         Serial.print(F("RTC sleep starts until "));
                         Serial.println(nextGatewayReqTime - 3);
-                        
-                        // Put the transceiver to sleep
-                        edriver->enterSleepMode();
+                        sleepForMillis(100);
 
-                        digitalWrite(7, LOW);
+                        digitalWrite(myRTCVccPin, LOW);
+                        myDriver->enterSleepMode();
                         Serial.flush();
 
+                        /*
+                        // disable the USB prior going to sleep
+                        #if defined (__AVR_ATmega32U4__)
+                        // disable the USB prior going to sleep
+                        USBCON |= _BV(FRZCLK);  //freeze USB clock
+                        PLLCSR &= ~_BV(PLLE);   // turn off USB PLL
+                        USBCON &= ~_BV(USBE);   // disable USB
+                        //LowPower.powerDown(SLEEP_FOREVER,ADC_OFF,BOD_OFF);
+                        #endif
+                        */
+
                         // disable ADC
+                        byte adc_state = ADCSRA;
                         ADCSRA = 0;
 
                         set_sleep_mode(SLEEP_MODE_PWR_DOWN);
@@ -423,13 +439,15 @@ bool ForwardEngine::run()
                         // ISR will detach interrupts and we won't wake.
                         noInterrupts();
 
-                        EIFR = bit(INTF0); // clear flag for interrupt 0
+                        EIFR = bit(translateInterruptPin(myRTCInterruptPin)); // clear flag for interrupt 2 on Pin 0
 
+                        #if defined (__AVR_ATmega328P__) || defined (__AVR_ATmega168P__)
                         // turn off brown-out enable in software
                         // BODS must be set to one and BODSE must be set to zero within four clock cycles
                         MCUCR = bit(BODS) | bit(BODSE);
                         // The BODS bit is automatically cleared after three clock cycles
                         MCUCR = bit(BODS);
+                        #endif
 
                         // We are guaranteed that the sleep_cpu call will be done
                         // as the processor executes the next instruction after
@@ -438,11 +456,24 @@ bool ForwardEngine::run()
                         sleep_cpu();  // one cycle
 
 
+                        ADCSRA = adc_state;
                         //Now the MCU has woken up, wait a while for the system to fully start up
                         sleepForMillis(50);
 
+                        /*
+                        #if defined (__AVR_ATmega32U4__)
+                        sleepForMillis(100);
+                        USBDevice.attach(); // keep this
+                        sleepForMillis(100);
+                        Serial.begin(9600);
+                        sleepForMillis(100);
+                        #endif
+                        */
+                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
+                        RTC.alarm(ALARM_1);
+
                         // Put the Transceiver back on
-                        edriver->enterTransMode();
+                        myDriver->enterTransMode();
 
                         // Fault detection
                         if (firstGatewayContact && (float)consecutiveMissingReqs > NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR ){
@@ -468,29 +499,29 @@ bool ForwardEngine::run()
                         
                         tmElements_t new_tm;
                         RTC.read(new_tm);
-                        Serial.print(F("Current Day: "));
-                        Serial.print(new_tm.Day);
-                        Serial.print(F(" Current Hour: "));
-                        Serial.print(new_tm.Hour);
-                        Serial.print(F(" Current Minutes: "));
-                        Serial.print(new_tm.Minute);
-                        Serial.print(F(" Current Seconds: "));
-                        Serial.println(new_tm.Second);
+                        // Serial.print(F("Current Day: "));
+                        // Serial.print(new_tm.Day);
+                        // Serial.print(F(" Current Hour: "));
+                        // Serial.print(new_tm.Hour);
+                        // Serial.print(F(" Current Minutes: "));
+                        // Serial.print(new_tm.Minute);
+                        // Serial.print(F(" Current Seconds: "));
+                        // Serial.println(new_tm.Second);
 
-                        Serial.print(F("Matching Day: "));
-                        Serial.print(tm.Day);
-                        Serial.print(F(" Matching Hour: "));
-                        Serial.print(tm.Hour);
-                        Serial.print(F(" Matching Minutes: "));
-                        Serial.print(tm.Minute);
-                        Serial.print(F(" Matching Seconds: "));
-                        Serial.println(tm.Second);
-
-                        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
-                        RTC.alarm(ALARM_1);
+                        // Serial.print(F("Matching Day: "));
+                        // Serial.print(tm.Day);
+                        // Serial.print(F(" Matching Hour: "));
+                        // Serial.print(tm.Hour);
+                        // Serial.print(F(" Matching Minutes: "));
+                        // Serial.print(tm.Minute);
+                        // Serial.print(F(" Matching Seconds: "));
+                        // Serial.println(tm.Second);
 
                         //Set up the alarm for the end of the receiving period
                         RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
+                        sleepForMillis(100);
+                        Serial.println(F("RTC Off"));
+                        digitalWrite(myRTCVccPin, LOW);
 
                         // Just to make sure allowReceiving is set to true
                         if (!allowReceiving)
@@ -777,7 +808,10 @@ bool ForwardEngine::run()
                             // Attach the interrupt
                             // The reason we do not attach the interrupt at the beginning is that 
                             // there could be previous alarm in the RTC.
-                            attachInterrupt(digitalPinToInterrupt(myRTCInterruptPin), rtcISR, FALLING);    
+                            noInterrupts();
+                            attachInterrupt(translateInterruptPin(myRTCInterruptPin), rtcISR, FALLING);
+                            EIFR = bit(translateInterruptPin(myRTCInterruptPin));
+                            interrupts();    
                         }
 
                     }
@@ -927,14 +961,18 @@ bool ForwardEngine::run()
     return 1;
 }
 
-void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
+void ForwardEngine::setSleepMode(uint8_t sleepMode, uint8_t rtcInterruptPin, uint8_t rtcVccPin)
 {
 
     if (sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
     {
+        myRTCVccPin = rtcVccPin;
+        pinMode(myRTCVccPin, OUTPUT);
 
-        pinMode(7, OUTPUT);
-        digitalWrite(7, HIGH);
+        // Turn on the RTC
+        digitalWrite(myRTCVccPin, HIGH);
+
+        // Wait for RTC to start up
         sleepForMillis(500);
 
         tmElements_t tm;
@@ -945,11 +983,14 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
             Serial.println(F("Error: Unable to set RTC-based interrupt. I2C error with the RTC."));
             return;
         }
-        else if (rtcInterruptPin < 2 || rtcInterruptPin > 3)
+        // The checking of interrupt pins does not work on Adafruit 32u4
+        
+        else if (translateInterruptPin(rtcInterruptPin) == NOT_AN_INTERRUPT)
         {
-            Serial.println(F("Error: RTC interrupt (SQW) has to be connected to digital pin 2 or 3"));
+            Serial.println(F("Error: RTC interrupt (SQW) has to be connected to a valid interrupt pin"));
             return;
         }
+        
 
         myRTCInterruptPin = rtcInterruptPin;
         //Initialize the RTC module with Alarm1
@@ -968,5 +1009,5 @@ void ForwardEngine::setSleepMode(int sleepMode, int rtcInterruptPin)
 void rtcISR()
 {
     allowReceiving = !allowReceiving;
-    digitalWrite(7, HIGH);
+    digitalWrite(myRTCVccPin, HIGH);
 }

@@ -19,16 +19,36 @@
 
 #include "Utilities.h"
 
+uint8_t translateInterruptPin(uint8_t digitalPin){
 
+  #if defined (__AVR_ATmega328P__)
+  return digitalPinToInterrupt(digitalPin);
+  #endif
+  
+  #if defined (__AVR_ATmega32U4__)
+  /* Source: https://www.arduino.cc/reference/en/language/functions/external-interrupts/attachinterrupt/ */
+  switch(digitalPin){
+    case 0:
+      return 2;
 
-unsigned long getTimeMillis()
-{
-    return millis();
-}
+    case 1:
+      return 3;
 
-void sleepForMillis(unsigned long time)
-{
-    delay(time);
+    case 2:
+      return 1;
+
+    case 3:
+      return 0;
+
+    case 7:
+      return 4;
+
+    default:
+      return NOT_AN_INTERRUPT;
+  }
+  #endif
+
+  return NOT_AN_INTERRUPT;
 }
 
 /**

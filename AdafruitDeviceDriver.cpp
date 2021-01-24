@@ -17,10 +17,7 @@
     along with CottonCandy.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-
 #include "AdafruitDeviceDriver.h"
-#include <SPI.h>
-#include <LoRa.h>
 
 #define DEBUG 1
 
@@ -56,7 +53,6 @@ void onReceive(int packetSize)
     packetSize -= 2;
     if (queueSize + packetSize > MSG_QUEUE_CAPACITY)
     {
-        Serial.println(F("Warning, packet is dropped since buffer is full"));
         return;
     }
     byte add0 = LoRa.read();
@@ -190,6 +186,17 @@ void AdafruitDeviceDriver::setCodingRateDenominator(int cr)
     this->codingRate = cr;
 }
 
-int AdafruitDeviceDriver::getDeviceType(){
+int AdafruitDeviceDriver::getDeviceType()
+{
     return DeviceType::ADAFRUIT_32U4_FEATHER;
+}
+
+void AdafruitDeviceDriver::enterSleepMode()
+{
+    LoRa.sleep();
+}
+
+void AdafruitDeviceDriver::enterTransMode()
+{
+    LoRa.receive();
 }

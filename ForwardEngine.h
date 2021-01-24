@@ -183,7 +183,7 @@ public:
     void onReceiveRequest(void (*callback)(byte **, byte *));
     void onReceiveResponse(void (*callback)(byte *, byte, byte *));
 
-    void setSleepMode(int sleepMode, int rtcInterruptPin);
+    void setSleepMode(uint8_t sleepMode, uint8_t rtcInterruptPin, uint8_t rtcVccPin);
 
 private:
     /**
@@ -260,7 +260,7 @@ private:
      */
     void (*onRecvResponse)(byte *, byte, byte *);
 
-    int sleepMode;
+    uint8_t sleepMode;
 
     bool firstGatewayContact = false;
 
@@ -269,7 +269,7 @@ private:
     time_t receivingPeriod;
 
     // A counter for missing consecutive gateway requests 
-    int consecutiveMissingReqs = 0;
+    uint8_t consecutiveMissingReqs = 0;
 
 };
 

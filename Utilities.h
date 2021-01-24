@@ -23,16 +23,10 @@
 #include "Arduino.h"
 #include <avr/sleep.h>
 
-/**
- * Helper function for timing. On Arduino, it can be done using millis().
- */
-unsigned long getTimeMillis();
+#define sleepForMillis delay
+#define getTimeMillis millis
 
-
-/**
- * Helper function for sleeping. On Arduino, it can be done using delay().
- */
-void sleepForMillis(unsigned long time);
+uint8_t translateInterruptPin(uint8_t digitalPin);
 
 int freeMemory();
 

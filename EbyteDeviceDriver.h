@@ -67,11 +67,9 @@ public:
 
     static void wakeISR();
 
-    bool powerDownMCU();
+    void powerDownMCU();
 
     int getDeviceType();
-
-    byte adc_state;
 
 private:
     SoftwareSerial *module;

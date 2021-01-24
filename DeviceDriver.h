@@ -65,6 +65,12 @@ public:
     virtual int available() = 0;
 
     virtual int getDeviceType() = 0;
+
+    virtual void powerDownMCU();
+
+    virtual void enterSleepMode();
+
+    virtual void enterTransMode();
 private:
     /**
      * Default receive timeout is 5000 ms (5 seconds) 

@@ -24,6 +24,10 @@
 #include "Arduino.h"
 #include "DeviceDriver.h"
 #include "SoftwareSerial.h"
+#include <SPI.h>
+#include <LoRa.h>
+#include <avr/sleep.h>
+#include <LowPower.h>
 
 /* for feather32u4 */
 #define RFM95_CS 8
@@ -55,6 +59,10 @@ public:
   int getLastMessageRssi();
 
   int getDeviceType();
+
+  void enterSleepMode();
+
+  void enterTransMode();
 
 private:
   byte addr[2];

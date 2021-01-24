@@ -40,3 +40,15 @@ byte DeviceDriver::recv(){
     Serial.println("Recv not implemented in this dummy driver");
     return -1;
 }
+
+void DeviceDriver::powerDownMCU(){
+    Serial.println("powerDownMCU not implemented in this dummy driver");
+}
+
+void DeviceDriver::enterSleepMode(){
+    Serial.println("enterSleepMode not implemented in this dummy driver");
+}
+
+void DeviceDriver::enterTransMode(){
+    Serial.println("enterTransMode not implemented in this dummy driver");
+}
