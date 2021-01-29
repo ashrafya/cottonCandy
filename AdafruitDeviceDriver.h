@@ -27,7 +27,7 @@
 #include <SPI.h>
 #include <LoRa.h>
 #include <avr/sleep.h>
-#include <LowPower.h>
+#include "Utilities.h"
 
 /* for feather32u4 */
 #define RFM95_CS 8
@@ -44,11 +44,27 @@
 class AdafruitDeviceDriver : public DeviceDriver
 {
 public:
-  AdafruitDeviceDriver(byte *addr, long frequency = RF95_FREQ, int sf = DEFAULT_SPREADING_FACTOR, long bw = DEFAULT_CHANNEL_BW, int cr = DEFAULT_CODING_RATE_DENOMINATOR);
+
+  /**
+   * By default, the software assumes that you are using Adafruit 32u4 LoRa Feather and you do not need to provide the
+   * pin mappings explicitly.
+   * 
+   * However, in case you are using the Adafruit Lora RFM9x Breakout board with a seperate microcontroller, you need to 
+   * provide the pin mappings.
+   */
+  AdafruitDeviceDriver(byte *addr, uint8_t csPin = RFM95_CS, uint8_t rstPin = RFM95_RST, uint8_t intPin = RFM95_INT);
 
   ~AdafruitDeviceDriver();
 
+  /**
+   * Use the default configuration to initilize the LoRa parameters
+   * 
+   * Frequency = 915 MHz; Spreading factor = 7; Channel bandwith = 125kHz; Coding Rate = 4/5
+   * 
+   */ 
   bool init();
+
+  bool init(long frequency, uint8_t sf, long bw, uint8_t cr);
 
   int send(byte *destAddr, byte *msg, long msgLen);
 
@@ -64,19 +80,23 @@ public:
 
   void enterTransMode();
 
+  void powerDownMCU();
+
 private:
   byte addr[2];
   long freq;
-  int sf;
+  uint8_t sf;
   long channelBW;
-  int codingRate;
+  uint8_t codingRate;
+
+  uint8_t irqPin;
 
   /*-----------Module Registers Configuration-----------*/
   void setAddress(byte *addr);
   void setFrequency(long frequency);
-  void setSpreadingFactor(int sf);
+  void setSpreadingFactor(uint8_t sf);
   void setChannelBandwidth(long bw);
-  void setCodingRateDenominator(int cr);
+  void setCodingRateDenominator(uint8_t cr);
 };
 
 #endif

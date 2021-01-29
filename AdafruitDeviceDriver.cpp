@@ -29,15 +29,14 @@ uint8_t queueSize;
 byte *adafruitAddr;
 
 AdafruitDeviceDriver::AdafruitDeviceDriver(byte *addr,
-                                           long frequency, int sf, long bw, int cr) : DeviceDriver()
+                                           uint8_t csPin, uint8_t rstPin, uint8_t intPin) : DeviceDriver()
 {
-
-    // Assign class member variables
+    
+    LoRa.setPins(csPin, rstPin, intPin);
+    
     setAddress(addr);
-    setFrequency(frequency);
-    setSpreadingFactor(sf);
-    setChannelBandwidth(bw);
-    setCodingRateDenominator(cr);
+
+    this->irqPin = intPin;
 
     queueHead = 0;
     queueTail = 0;
@@ -83,10 +82,19 @@ void onReceive(int packetSize)
     //     Serial.print("After, queue end: ");
     //     Serial.println(queueSize);
 }
+
 bool AdafruitDeviceDriver::init()
 {
+    return this->init(RF95_FREQ,DEFAULT_SPREADING_FACTOR,DEFAULT_CHANNEL_BW,DEFAULT_CODING_RATE_DENOMINATOR);
+}
 
-    LoRa.setPins(RFM95_CS, RFM95_RST, RFM95_INT);
+bool AdafruitDeviceDriver::init(long frequency, uint8_t sf, long bw, uint8_t cr)
+{
+    // Assign class member variables
+    setFrequency(frequency);
+    setSpreadingFactor(sf);
+    setChannelBandwidth(bw);
+    setCodingRateDenominator(cr);
 
     if (!LoRa.begin(freq))
     {
@@ -171,7 +179,7 @@ void AdafruitDeviceDriver::setFrequency(long frequency)
     this->freq = frequency;
 }
 
-void AdafruitDeviceDriver::setSpreadingFactor(int sf)
+void AdafruitDeviceDriver::setSpreadingFactor(uint8_t sf)
 {
     this->sf = sf;
 }
@@ -181,14 +189,14 @@ void AdafruitDeviceDriver::setChannelBandwidth(long bw)
     this->channelBW = bw;
 }
 
-void AdafruitDeviceDriver::setCodingRateDenominator(int cr)
+void AdafruitDeviceDriver::setCodingRateDenominator(uint8_t cr)
 {
     this->codingRate = cr;
 }
 
 int AdafruitDeviceDriver::getDeviceType()
 {
-    return DeviceType::ADAFRUIT_32U4_FEATHER;
+    return DeviceType::ADAFRUIT_LORA;
 }
 
 void AdafruitDeviceDriver::enterSleepMode()
@@ -199,4 +207,67 @@ void AdafruitDeviceDriver::enterSleepMode()
 void AdafruitDeviceDriver::enterTransMode()
 {
     LoRa.receive();
+}
+
+void wakeISR(){
+    sleep_disable();
+}
+
+void AdafruitDeviceDriver::powerDownMCU(){
+
+    int interruptNumber = translateInterruptPin(irqPin);
+
+    if(interruptNumber == NOT_AN_INTERRUPT){
+        Serial.println(F("Refuse to enter sleep: The IRQ pin is not connected to an valid interrupt pin"));
+        return;
+    }
+
+   /** This feature does not seem to work on Adafruit 32u4 Feather board where the transceiver IRQ is internally
+    * connected to pin 7 (INT4).
+    * 
+    * Reference:
+    * 1. https://learn.adafruit.com/adafruit-feather-32u4-radio-with-lora-radio-module/pinouts
+    * 2. Page 43 Section 7.3 "Power-down Mode" in the Atmega16u4/32u4 data sheet.
+    */
+    #if defined (__AVR_ATmega32U4__)
+    if(interruptNumber == INTF4){
+        Serial.println(F("Refuse to enter sleep: INT4 on 32u4 cannot wake up the MCU from power-down mode"));
+        return;
+    }
+    #endif
+
+    //Make sure the debugging messages are printed correctly before goes to sleep
+    Serial.flush();
+
+    byte adc_state = ADCSRA;
+    // disable ADC
+    ADCSRA = 0;
+
+    set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+    sleep_enable();
+
+    // Do not interrupt before we go to sleep, or the
+    // ISR will detach interrupts and we won't wake.
+    noInterrupts();
+    
+    EIFR = bit(interruptNumber); // clear flag for transceiver-based interrupt
+
+    // Software brown-out only works in ATmega328p
+    #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168P__)
+    // turn off brown-out enable in software
+    // BODS must be set to one and BODSE must be set to zero within four clock cycles
+    MCUCR = bit(BODS) | bit(BODSE);
+    // The BODS bit is automatically cleared after three clock cycles
+    MCUCR = bit(BODS);
+    #endif
+
+    // We are guaranteed that the sleep_cpu call will be done
+    // as the processor executes the next instruction after
+    // interrupts are turned on.
+    interrupts(); // one cycle
+    sleep_cpu();  // one cycle
+    //The MCU is turned off after this point
+
+    //Restore the ADC
+    ADCSRA = adc_state;
 }

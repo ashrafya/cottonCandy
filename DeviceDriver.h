@@ -28,7 +28,7 @@ static byte BROADCAST_ADDR[2] = {0xFF, 0xFF};
 typedef enum{
     UNKNOWN,
     EBYTE_E22,
-    ADAFRUIT_32U4_FEATHER
+    ADAFRUIT_LORA
 }DeviceType;
 
 

@@ -260,7 +260,7 @@ private:
      */
     void (*onRecvResponse)(byte *, byte, byte *);
 
-    uint8_t sleepMode;
+    uint8_t sleepMode = SleepMode::NO_SLEEP;
 
     bool firstGatewayContact = false;
 

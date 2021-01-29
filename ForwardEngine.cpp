@@ -329,12 +329,19 @@ bool ForwardEngine::run()
                  * The MCU is woken up as soon as the transceiver receives a packet
                  */
 
-                 /**
-                   * Check the flag in case the RTC alarm already indicates that the receiving should be ended
-                   * This is important since if the node goes to sleep and there aren't any other incoming packets,
-                   * the node CAN GO TO SLEEP WITH transceiver-interrupt forever until the next incoming packet
-                   * (which could be a few hours later if unfortunate)
-                   */
+
+                if(myDriver->getDeviceType() == DeviceType::ADAFRUIT_LORA){
+                    //Dison: I added a noInterrupt() here since Adafruit uses interrupt to receive messages. Thus we
+                    //do not want the available() to change when we are checking it.
+                    noInterrupts();
+                }
+
+                /**
+                 * Check the flag in case the RTC alarm already indicates that the receiving should be ended
+                 * This is important since if the node goes to sleep and there aren't any other incoming packets,
+                 * the node CAN GO TO SLEEP WITH transceiver-interrupt forever until the next incoming packet
+                 * (which could be a few hours later if unfortunate)
+                 */
                 if (myDriver->available() < 1)
                 {
 
@@ -343,27 +350,37 @@ bool ForwardEngine::run()
                     noInterrupts();
                     if (allowReceiving)
                     {
-                        //Currently we do not support Adafruit 32u4 LoRa Feather for
-                        //transceiver-based interrupt since its DIO0 pin is inaccessible 
-                        //(i.e. The DIO0 pin is connected internally to a 32u4 pin that
-                        //does not support hardware-interrupt)
-                        if (myDriver->getDeviceType() == DeviceType::EBYTE_E22){
-                            Serial.println(F("Put MCU to sleep"));
+                       /** 
+                        * If you are using the AdafruitDeviceDriver: 
+                        * 
+                        * The powerDownMCU() in the AdafruitDeviceDriver is written for 
+                        * Adafruit RFM9X LoRa breakout.
+                        * 
+                        * Currently we do not support Adafruit 32u4 LoRa Feather for
+                        * transceiver-based interrupt since its DIO0 pin is inaccessible 
+                        *(i.e. The DIO0 pin is connected internally to pin 7 which
+                        * does not support hardware-interrupt). At this moment, calling
+                        * powerDownMCU() on Adafruit 32u4 LoRa Feather will simply return
+                        * and will not put the MCU to sleep.
+                        * 
+                        * However, if you are able to hard-wire the DIO0 pin on transciever
+                        * IC of the Adafruit 32u4 board to any of INT3:0, then you might be
+                        * able to do the powerDownMCU() correctly.
+                        */ 
+                        
+                        Serial.println(F("Put MCU to sleep"));
 
-                            //Put the MCU to sleep and set the interrupt handler
-                            myDriver->powerDownMCU();
+                        //Put the MCU to sleep and set the interrupt handler
+                        myDriver->powerDownMCU();
 
-                            /**
-                             * Now the MCU has woken up, wait a while for the system to fully start up
-                             * Note: this is based on experience, without delays, some bytes will be
-                             * lost when we read from software serial
-                             */
-                            sleepForMillis(50);
+                        /**
+                         * Now the MCU has woken up, wait a while for the system to fully start up
+                         * Note: this is based on experience, without delays, some bytes will be
+                         * lost when we read from software serial
+                         */
+                        sleepForMillis(50);
 
-                            Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
-                        }else{
-                            interrupts();
-                        }
+                        Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
                         /**
                          * There are two causes that might lead to MCU wakes up here:
                          *   1. An incoming packet is detected
