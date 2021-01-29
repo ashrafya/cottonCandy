@@ -41,7 +41,7 @@
 #define RECEIVE_TIMEOUT 1000
 
 /* The RSSI threshold for choosing a parent node */
-#define RSSI_THRESHOLD -70
+#define RSSI_THRESHOLD -100
 
 /* The maximum number of children a node can have */
 #define MAX_NUM_CHILDREN 5
