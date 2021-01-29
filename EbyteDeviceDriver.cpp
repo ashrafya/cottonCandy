@@ -141,18 +141,18 @@ int EbyteDeviceDriver::getLastMessageRssi(){
     module->write(0xC2);
     module->write(0xC3);
 
-    module->write(0x01);
-    module->write(0x01);
+    module->write((byte)0x00);
+    module->write(0x02);
 
     int bytesRead = 0;
     int result = 0;
-    while (bytesRead < 4)
+    while (bytesRead < 5)
     {
       if (module->available())
       {
-        char b = module->read();
-        if (bytesRead == 2)
-            result = (int)b;
+        byte b = module->read();
+        if (bytesRead == 4)
+            result = - (int)(b>>1);
         bytesRead++;
       }
     }
