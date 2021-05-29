@@ -238,4 +238,6 @@ private:
 
 };
 
+void rtcISR();
+
 #endif
