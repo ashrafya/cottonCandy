@@ -53,8 +53,9 @@ public:
      * Note: This method can be used without calling join() prior. In this case, the node assumes that
      * there is no existing network and it is the first node in the new network. 
      */
-    bool run();
 
+    bool run();
+    bool run2();
 
     //Setter for the node address
     void setAddr(byte* addr);

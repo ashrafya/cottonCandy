@@ -23,9 +23,9 @@
 #include "DeviceDriver.h"
 #include "MessageProcessor.h"
 #include "Utilities.h"
-// #include <DS3232RTC.h>
-#include <PCF8523.h>
-#include <time.h>
+#include <DS3232RTC.h>
+// #include <PCF8523.h>
+// #include <time.h>
 
 /*-------------States of a Node------------*/
 #define INIT 0
@@ -128,6 +128,8 @@ void rtcISR();
 class ForwardEngine
 {
 
+// time_t compileTime();
+
 public:
     /**
      * Copy constructor
@@ -163,6 +165,9 @@ public:
      * Note: This method can be used without calling join() prior. In this case, the node assumes that
      * there is no existing network and it is the first node in the new network. 
      */
+
+    bool run2();
+    
     bool run();
 
     //Setter for the node address

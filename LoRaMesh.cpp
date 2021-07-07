@@ -74,6 +74,11 @@ bool LoRaMesh::run()
   return myEngine->run();
 }
 
+bool LoRaMesh::run2()
+{
+  return myEngine->run2();
+}
+
 void LoRaMesh::setSleepMode(uint8_t sleepMode, uint8_t rtcInterruptPin, uint8_t rtcVccPin)
 {
   if(sleepMode < SleepMode::NO_SLEEP || sleepMode > SleepMode::SLEEP_RTC_INTERRUPT){

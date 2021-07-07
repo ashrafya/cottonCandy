@@ -24,6 +24,35 @@ volatile bool allowReceiving = true;
 uint8_t myRTCInterruptPin;
 uint8_t myRTCVccPin;
 
+int value = 0; 
+int analogPin = A0;
+volatile int lastTime;
+
+#include <Streaming.h>      // http://arduiniana.org/libraries/streaming/
+
+
+time_t compileTime()
+{
+    const time_t FUDGE(10);    //fudge factor to allow for upload time, etc. (seconds, YMMV)
+    const char *compDate = __DATE__, *compTime = __TIME__, *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    char compMon[4], *m;
+
+    strncpy(compMon, compDate, 3);
+    compMon[3] = '\0';
+    m = strstr(months, compMon);
+
+    tmElements_t tm;
+    tm.Month = ((m - months) / 3 + 1);
+    tm.Day = atoi(compDate + 4);
+    tm.Year = atoi(compDate + 7) - 1970;
+    tm.Hour = atoi(compTime);
+    tm.Minute = atoi(compTime + 3);
+    tm.Second = atoi(compTime + 6);
+
+    time_t t = makeTime(tm);
+    return t + FUDGE;        //add fudge factor to allow for compile time
+}
+
 ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
 {
     myAddr[0] = addr[0];
@@ -268,6 +297,198 @@ bool ForwardEngine::join()
     }
 }
 
+bool ForwardEngine::run2()
+{
+
+    // RTC.set(compileTime());  // set the RTC time and date to the compile time
+
+    // lastTime = RTC.get();  // get latest RTC time   // check if this can work, using the .get() function
+
+    // getting current time on RTC
+    tmElements_t currTime;
+    lastTime = RTC.read(currTime);
+
+    // initialize the alarms to known values, clear the alarm flags, clear the alarm interrupt flags
+    Serial.print("initializing RTC");
+    RTC.setAlarm(ALM1_MATCH_DATE, 0, 0, 0, 1);
+    RTC.setAlarm(ALM2_MATCH_DATE, 0, 0, 0, 1);
+    RTC.alarm(ALARM_1);
+    RTC.alarm(ALARM_2);
+    RTC.alarmInterrupt(ALARM_1, false);
+    RTC.alarmInterrupt(ALARM_2, false);
+    RTC.squareWave(SQWAVE_NONE);
+    pinMode(0, INPUT_PULLUP);
+    
+    while(1)    // while loop will run forever 
+    {
+
+        // reading sensor value and outputting
+        value = analogRead(A0); // read the analog value from sensor
+        Serial.print("Sensor value: ");
+        Serial.println(value);
+
+        //Set the time for next RTC alarm
+        //creating variable to just hold when the alarm should happen
+        tmElements_t alarmTime;
+        breakTime(lastTime + 5, alarmTime);
+        
+        RTC.setAlarm(ALM1_MATCH_DATE, alarmTime.Second, alarmTime.Minute, alarmTime.Hour, alarmTime.Day); // matches all time up to date
+        
+        // clear the alarm flag
+        RTC.alarm(ALARM_1);
+        RTC.alarmInterrupt(ALARM_1, true);
+
+        noInterrupts();
+
+        // setting the MCU to sleep 
+        myDriver->enterSleepMode();   // putting trans to sleep
+        Serial.println(F("Put MCU to sleep"));
+        Serial.flush();  // send out all outputs to serial
+
+        //Put the MCU to sleep and set the interrupt handler
+        myDriver->powerDownMCU();  // turn off
+
+        set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+        sleep_enable();
+
+        noInterrupts();
+
+   
+
+        // We are guaranteed that the sleep_cpu call will be done
+        // as the processor executes the next instruction after
+        // interrupts are turned on.
+        interrupts(); // one cycle
+        sleep_cpu();  // one cycle
+
+        // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
+        RTC.alarm(ALARM_1);
+
+        // Put the Transceiver back on
+        myDriver->enterTransMode();
+
+
+        // get time after the MCU has woken up
+        // this variable will be used to 
+        tmElements_t currTime;
+        lastTime = RTC.read(currTime); // get new time on RTC
+
+    }
+}
+
+
+// bool ForwardEngine::run2()
+// {
+//     //If the node is a gateway, it does not have to join the network to operate
+//     //Gateway is distinguished by the highest bit = 1
+//     if (myAddr[0] & GATEWAY_ADDRESS_MASK)
+//     {state = JOINED;
+
+//     //Gateway has the cost of 0
+//     hopsToGateway = 0;}
+//     else
+//     {
+//         state = INIT;
+
+//         //Uninitilized gateway cost
+//         hopsToGateway = 255;
+
+//         //If it is a regular node, it needs to join the network to operate
+//         // while (state == INIT)
+//         // {
+//         //     if (join())
+//         //     {
+//         //        state = JOINED;
+//         //     }
+//         //     else
+//         //     {   Serial.println(F("Joining unsuccessful. Retry joining in 5 seconds"));
+//         //         // sleepForMillis(5000);            }
+//         //     }
+//         // Serial.println(F("Joining successful"));
+//         // }
+//     }
+
+// // last time that reading is taken
+
+// //NEED TO DEFINE analogPin VARIABLE IN SCRIPT TO MKE THIS WORK
+// while(1)
+// {
+//     lastTime = RTC.get();
+    
+
+//     digitalWrite(A0, HIGH);  // turn the sensor ON
+//     value = analogRead(A0); // read the analog value from sensor
+//     Serial.print("Sensor value: ");
+//     Serial.println(value);
+//     digitalWrite(A0, LOW);  // turn the sensor OFF
+
+//     // initialize the alarm
+//     RTC.alarm(ALARM_1);
+//     RTC.squareWave(SQWAVE_NONE);
+//     RTC.alarmInterrupt(ALARM_1, true);
+//     RTC.alarmInterrupt(ALARM_2, false);
+//     pinMode(1, INPUT_PULLUP);
+
+
+//     //Set the time for next RTC alarm
+//     tmElements_t tm;
+//     breakTime(lastTime + 5, tm);
+
+//     // if (sleepMode == SleepMode::SLEEP_TRANSCEIVER_INTERRUPT || sleepMode == SleepMode::SLEEP_RTC_INTERRUPT)
+//     //         {
+//                 RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day); // matches all time up to date
+
+//                 Serial.print(F("RTC sleep starts until "));
+//                 Serial.println(lastTime + 5);
+//                 Serial.print("Seconds=");
+//                 Serial.print(tm.Second);
+//                 Serial.println();
+//                 Serial.print("Minutes=");
+//                 Serial.print(tm.Minute);
+//                 Serial.println();
+//                 Serial.print("Hours=");
+//                 Serial.print(tm.Hour);
+//                 Serial.println();
+//                 Serial.print("Day=");
+//                 Serial.print(tm.Day);
+//                 Serial.println();
+//                 Serial.print("Month=");
+//                 Serial.print(tm.Month);
+//                 Serial.println();
+//                 // sleepForMillis(100);
+//                 // delay(50);
+
+//                 digitalWrite(myRTCVccPin, LOW);
+//                 myDriver->enterSleepMode();   // putting trans to sleep
+//                 Serial.println(F("Put MCU to sleep"));
+//                 // Serial.flush();  // send out all outputs to serial
+
+//                 //Put the MCU to sleep and set the interrupt handler
+//                 myDriver->powerDownMCU();  // turn off
+
+//                 /**
+//                     * Now the MCU has woken up, wait a while for the system to fully start up
+//                     * Note: this is based on experience, without delays, some bytes will be
+//                     * lost when we read from software serial
+//                     */
+                
+//                 // sleepForMillis(50);            // maybe removing these two lines will have an impact
+//                 // myDriver->enterTransMode();     // since MCU completely woken up and in trans mode after rtc alarm
+
+//                 // // Serial.println(F("MCU wakes up due to an incoming packet or RTC alarm"));
+//                 // set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+//                 // sleep_enable();
+
+//                 // // Do not interrupt before we go to sleep, or the
+//                 // // ISR will detach interrupts and we won't wake.
+//                 // noInterrupts();
+//             // }
+
+// }
+
+// }
+
+
 bool ForwardEngine::run()
 {
 
@@ -385,7 +606,7 @@ bool ForwardEngine::run()
                          * There are two causes that might lead to MCU wakes up here:
                          *   1. An incoming packet is detected
                          *   2. RTC alarm has indicated the end of the receiving period
-                         */
+                         *
                     }
                     else
                     {

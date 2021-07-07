@@ -36,7 +36,7 @@ AdafruitDeviceDriver::AdafruitDeviceDriver(byte *addr,
     
     setAddress(addr);
 
-    this->irqPin = intPin;
+    this->irqPin = 1;
 
     queueHead = 0;
     queueTail = 0;
@@ -229,12 +229,12 @@ void AdafruitDeviceDriver::powerDownMCU(){
     * 1. https://learn.adafruit.com/adafruit-feather-32u4-radio-with-lora-radio-module/pinouts
     * 2. Page 43 Section 7.3 "Power-down Mode" in the Atmega16u4/32u4 data sheet.
     */
-    #if defined (__AVR_ATmega32U4__)
-    if(interruptNumber == INTF4){
-        Serial.println(F("Refuse to enter sleep: INT4 on 32u4 cannot wake up the MCU from power-down mode"));
-        return;
-    }
-    #endif
+    // #if defined (__AVR_ATmega32U4__)
+    // if(interruptNumber == INTF4){
+    //     Serial.println(F("Refuse to enter sleep: INT4 on 32u4 cannot wake up the MCU from power-down mode"));
+    //     return;
+    // }
+    // #endif
 
     //Make sure the debugging messages are printed correctly before goes to sleep
     Serial.flush();
