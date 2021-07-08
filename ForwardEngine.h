@@ -23,9 +23,7 @@
 #include "DeviceDriver.h"
 #include "MessageProcessor.h"
 #include "Utilities.h"
-#include <DS3232RTC.h>
-// #include <PCF8523.h>
-// #include <time.h>
+#include <DS3232RTC.h>   
 
 /*-------------States of a Node------------*/
 #define INIT 0
@@ -86,6 +84,12 @@ Parent node (including gateway) uses this value and multiply it with the number 
  *         (NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR * Advertised next request time interval)
 */
 #define NEXT_GATEWAY_REQ_TIME_TOLERANCE_FACTOR 1.2
+
+void run3();
+void setNextAlarm();
+void disable_sleep_ISR();
+void readSensor();
+
 
 typedef enum
 {

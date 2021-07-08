@@ -20,6 +20,7 @@
 #include "ForwardEngine.h"
 //#include "LowPower.h"
 
+
 volatile bool allowReceiving = true;
 uint8_t myRTCInterruptPin;
 uint8_t myRTCVccPin;
@@ -34,26 +35,45 @@ volatile int lastTime;
 #include <Streaming.h>      // http://arduiniana.org/libraries/streaming/
 
 
-time_t compileTime()
+#define interruptPin 0
+
+
+
+
+void setNextAlarm()
 {
-    const time_t FUDGE(10);    //fudge factor to allow for upload time, etc. (seconds, YMMV)
-    const char *compDate = __DATE__, *compTime = __TIME__, *months = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    char compMon[4], *m;
+    // get current time
+    time_t currTIME = RTC.get();
 
-    strncpy(compMon, compDate, 3);
-    compMon[3] = '\0';
-    m = strstr(months, compMon);
-
+    // break into tm_elements to set alarm
     tmElements_t tm;
-    tm.Month = ((m - months) / 3 + 1);
-    tm.Day = atoi(compDate + 4);
-    tm.Year = atoi(compDate + 7) - 1970;
-    tm.Hour = atoi(compTime);
-    tm.Minute = atoi(compTime + 3);
-    tm.Second = atoi(compTime + 6);
+    breakTime(currTIME + 10, tm);  // +10 sets the alarm for 10 seconds after
 
-    time_t t = makeTime(tm);
-    return t + FUDGE;        //add fudge factor to allow for compile time
+    // set the alarm (but not yet active)
+    RTC.setAlarm(ALM1_MATCH_DATE, tm.Second, tm.Minute, tm.Hour, tm.Day);
+
+    // activate alarm
+    RTC.alarmInterrupt(ALARM_1, true);
+}
+
+void disable_sleep_ISR()
+{
+    // Prevent sleep mode, so we don't enter it again, except deliberately, by code
+	sleep_disable();
+
+	// Detach the interrupt that brought us out of sleep
+	detachInterrupt(digitalPinToInterrupt(interruptPin));
+
+	// Now we continue running the main Loop() just after we went to sleep
+}
+
+void readSensor()
+{
+    // will be reading sensor values here
+    // currently reading from pin A0
+    value = analogRead(A0); // read the analog value from sensor
+    Serial.print("Sensor value: ");
+    Serial.println(value);
 }
 
 ForwardEngine::ForwardEngine(byte *addr, DeviceDriver *driver)
@@ -300,86 +320,94 @@ bool ForwardEngine::join()
     }
 }
 
-// bool ForwardEngine::run2()
-// {
 
-//     // RTC.set(compileTime());  // set the RTC time and date to the compile time
+bool ForwardEngine:: run2()
+{
+    Serial.println("Beginning time based reading routine");
 
-//     // lastTime = RTC.get();  // get latest RTC time   // check if this can work, using the .get() function
+    // Keep pins high until we ground them
+    pinMode(interruptPin, INPUT_PULLUP);
+    RTC.clearAlarm(ALARM_1); // clear alarms
+    RTC.clearAlarm(ALARM_2); // clear alarms
+    Serial.println("setup complete");
 
-//     // getting current time on RTC
-//     tmElements_t currTime;
-//     lastTime = RTC.read(currTime);
+    while(1)
+    {
+        time_t time1 = RTC.get(); // get time that is always read
 
-//     // initialize the alarms to known values, clear the alarm flags, clear the alarm interrupt flags
-//     Serial.print("initializing RTC");
-//     RTC.setAlarm(ALM1_MATCH_DATE, 0, 0, 0, 1);
-//     RTC.setAlarm(ALM2_MATCH_DATE, 0, 0, 0, 1);
-//     RTC.alarm(ALARM_1);
-//     RTC.alarm(ALARM_2);
-//     RTC.alarmInterrupt(ALARM_1, false);
-//     RTC.alarmInterrupt(ALARM_2, false);
-//     RTC.squareWave(SQWAVE_NONE);
-//     pinMode(0, INPUT_PULLUP);
-    
-//     while(1)    // while loop will run forever 
-//     {
+        if (digitalRead(interruptPin)==HIGH)   // if pin low that means alarm fired and need to set new one
+        {
+            Serial.println("setting alarm");
+            // program new alarm since fired
+            setNextAlarm();
 
-//         // reading sensor value and outputting
-//         value = analogRead(A0); // read the analog value from sensor
-//         Serial.print("Sensor value: ");
-//         Serial.println(value);
-
-//         //Set the time for next RTC alarm
-//         //creating variable to just hold when the alarm should happen
-//         tmElements_t alarmTime;
-//         breakTime(lastTime + 5, alarmTime);
-        
-//         RTC.setAlarm(ALM1_MATCH_DATE, alarmTime.Second, alarmTime.Minute, alarmTime.Hour, alarmTime.Day); // matches all time up to date
-        
-//         // clear the alarm flag
-//         RTC.alarm(ALARM_1);
-//         RTC.alarmInterrupt(ALARM_1, true);
-
-//         noInterrupts();
-
-//         // setting the MCU to sleep 
-//         myDriver->enterSleepMode();   // putting trans to sleep
-//         Serial.println(F("Put MCU to sleep"));
-//         Serial.flush();  // send out all outputs to serial
-
-//         //Put the MCU to sleep and set the interrupt handler
-//         myDriver->powerDownMCU();  // turn off
-
-//         set_sleep_mode(SLEEP_MODE_PWR_DOWN);
-//         sleep_enable();
-
-//         noInterrupts();
-
-   
-
-//         // We are guaranteed that the sleep_cpu call will be done
-//         // as the processor executes the next instruction after
-//         // interrupts are turned on.
-//         interrupts(); // one cycle
-//         sleep_cpu();  // one cycle
-
-//         // When MCU wakes up from here, RTC alarm has indicated the start of a new receiving period
-//         RTC.alarm(ALARM_1);
-
-//         // Put the Transceiver back on
-//         myDriver->enterTransMode();
+            // put MCU back to sleep as well
 
 
-//         // get time after the MCU has woken up
-//         // this variable will be used to 
-//         tmElements_t currTime;
-//         lastTime = RTC.read(currTime); // get new time on RTC
+            Serial.println("Disabling ADC");
+            // Disable the ADC (Analog to digital converter, pins A0 [14] to A5 [19])
+            static byte prevADCSRA = ADCSRA;
+            ADCSRA = 0;
 
-//     }
-// }
+            
+            
+            noInterrupts();
+            attachInterrupt(digitalPinToInterrupt(interruptPin), disable_sleep_ISR, LOW);
 
+            // Send a message just to show we are about to sleep
+            Serial.println("Good night!");
+            Serial.flush();
+            
+            Serial.println("POwering down MCU");
+            // Allow interrupts now
+            interrupts();
+            set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+            sleep_enable();
+            sleep_mode();
 
+            // Ensure we can wake up again by first disabling interupts (temporarily) so
+            // the wakeISR does not run before we are asleep and then prevent interrupts,
+            // and then defining the ISR (Interrupt Service Routine) to run when poked awake
+            
+
+            // And enter sleep mode as set above
+            sleep_cpu();
+            // myDriver->enterSleepMode();
+
+            // --------------------------------------------------------
+            // µController is now asleep until woken up by an interrupt
+            // --------------------------------------------------------
+
+            // Wakes up at this point when wakePin is brought LOW - interrupt routine is run first
+            Serial.println("I'm awake!");
+
+            // Clear existing alarm so int pin goes high again
+            // RTC.clearAlarm(ALARM_1); // clear alarms
+            // RTC.clearAlarm(ALARM_2); // clear alarms
+
+            // Re-enable ADC if it was previously running
+            ADCSRA = prevADCSRA;
+
+        }
+        else
+        {
+            // clearing alarms sets INT pin to HIGH again and after going through this else loop once
+            // it is set to sleep again above
+            RTC.clearAlarm(ALARM_1); // clear alarms
+            RTC.clearAlarm(ALARM_2); // clear alarms
+            // reading sensor values
+            readSensor();
+            Serial.print(digitalRead(interruptPin));
+
+            // can use this small block to make sure sensor reading is outputted only once to screen
+            time_t time2 = RTC.get();
+            if (time1 != time2)
+            {
+                Serial.println();
+            }
+        }
+    }
+}
 bool ForwardEngine::run2()
 {
     
