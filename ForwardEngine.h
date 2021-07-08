@@ -38,7 +38,7 @@
 #define GATEWAY_ADDRESS_MASK 0x80
 
 /* The default time for discovery is 10 seconds */
-#define DISCOVERY_TIMEOUT 10000
+#define DISCOVERY_TIMEOUT 5000
 
 /* The default timeout value for receiving a message is 1 seconds */
 #define RECEIVE_TIMEOUT 1000
